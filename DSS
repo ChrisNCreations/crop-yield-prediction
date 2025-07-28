@@ -1,0 +1,412 @@
+"use client"
+
+import { useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { Sprout, Thermometer, CloudRain, TrendingUp, AlertTriangle, CheckCircle } from "lucide-react"
+
+interface PredictionResult {
+  crop: string
+  temperature: number
+  rainfall: number
+  predictedYield: number
+  recommendation: string
+  riskLevel: "low" | "medium" | "high"
+}
+
+const cropRanges = {
+  cassava: { temp: [20, 35], rainfall: [800, 1500], optimalYield: 25 },
+  yam: { temp: [25, 30], rainfall: [1000, 1800], optimalYield: 20 },
+  potatoes: { temp: [15, 25], rainfall: [400, 800], optimalYield: 30 },
+}
+
+export default function CropYieldDSS() {
+  const [selectedCrop, setSelectedCrop] = useState<string>("")
+  const [temperature, setTemperature] = useState<number[]>([25])
+  const [rainfall, setRainfall] = useState<number[]>([1000])
+  const [prediction, setPrediction] = useState<PredictionResult | null>(null)
+  const [error, setError] = useState<string>("")
+  const [isLoading, setIsLoading] = useState(false)
+
+  const validateInputs = (): boolean => {
+    if (!selectedCrop) {
+      setError("Please select a crop type")
+      return false
+    }
+
+    const tempValue = temperature[0]
+    const rainfallValue = rainfall[0]
+
+    if (tempValue < 0 || tempValue > 50) {
+      setError("Temperature must be between 0°C and 50°C")
+      return false
+    }
+
+    if (rainfallValue < 0 || rainfallValue > 3000) {
+      setError("Rainfall must be between 0mm and 3000mm")
+      return false
+    }
+
+    setError("")
+    return true
+  }
+
+  const simulateRandomForestPrediction = (crop: string, temp: number, rain: number): number => {
+    const ranges = cropRanges[crop as keyof typeof cropRanges]
+
+    // Simulate Random Forest prediction with realistic factors
+    const baseYield = ranges.optimalYield
+
+    // Temperature factor
+    const tempOptimal = (ranges.temp[0] + ranges.temp[1]) / 2
+    const tempDeviation = Math.abs(temp - tempOptimal) / tempOptimal
+    const tempFactor = Math.max(0.3, 1 - tempDeviation * 0.8)
+
+    // Rainfall factor
+    const rainOptimal = (ranges.rainfall[0] + ranges.rainfall[1]) / 2
+    const rainDeviation = Math.abs(rain - rainOptimal) / rainOptimal
+    const rainFactor = Math.max(0.3, 1 - rainDeviation * 0.6)
+
+    // Add some randomness to simulate model uncertainty
+    const randomFactor = 0.9 + Math.random() * 0.2
+
+    return Math.round(baseYield * tempFactor * rainFactor * randomFactor * 100) / 100
+  }
+
+  const generateRecommendation = (
+    crop: string,
+    temp: number,
+    rain: number,
+    predictedYield: number,
+  ): { recommendation: string; riskLevel: "low" | "medium" | "high" } => {
+    const ranges = cropRanges[crop as keyof typeof cropRanges]
+    const optimalYield = ranges.optimalYield
+
+    let recommendation = ""
+    let riskLevel: "low" | "medium" | "high" = "low"
+
+    const yieldRatio = predictedYield / optimalYield
+
+    if (yieldRatio >= 0.8) {
+      recommendation = `Excellent conditions for ${crop} cultivation. Expected high yield with current parameters.`
+      riskLevel = "low"
+    } else if (yieldRatio >= 0.6) {
+      recommendation = `Good conditions for ${crop}. Consider optimizing temperature or rainfall for better yield.`
+      riskLevel = "medium"
+
+      if (temp < ranges.temp[0] || temp > ranges.temp[1]) {
+        recommendation += ` Temperature (${temp}°C) is outside optimal range (${ranges.temp[0]}-${ranges.temp[1]}°C).`
+      }
+      if (rain < ranges.rainfall[0] || rain > ranges.rainfall[1]) {
+        recommendation += ` Rainfall (${rain}mm) is outside optimal range (${ranges.rainfall[0]}-${ranges.rainfall[1]}mm).`
+      }
+    } else {
+      recommendation = `Suboptimal conditions for ${crop}. Significant adjustments needed for viable cultivation.`
+      riskLevel = "high"
+
+      if (temp < ranges.temp[0]) {
+        recommendation += ` Temperature too low - consider greenhouse cultivation or wait for warmer season.`
+      } else if (temp > ranges.temp[1]) {
+        recommendation += ` Temperature too high - consider shade nets or cooling systems.`
+      }
+
+      if (rain < ranges.rainfall[0]) {
+        recommendation += ` Insufficient rainfall - irrigation system required.`
+      } else if (rain > ranges.rainfall[1]) {
+        recommendation += ` Excessive rainfall - ensure proper drainage systems.`
+      }
+    }
+
+    return { recommendation, riskLevel }
+  }
+
+  const handlePredict = async () => {
+    if (!validateInputs()) return
+
+    setIsLoading(true)
+
+    // Simulate API call delay
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+
+    const tempValue = temperature[0]
+    const rainfallValue = rainfall[0]
+
+    const predictedYieldValue = simulateRandomForestPrediction(selectedCrop, tempValue, rainfallValue)
+    const { recommendation, riskLevel } = generateRecommendation(
+      selectedCrop,
+      tempValue,
+      rainfallValue,
+      predictedYieldValue,
+    )
+
+    setPrediction({
+      crop: selectedCrop,
+      temperature: tempValue,
+      rainfall: rainfallValue,
+      predictedYield: predictedYieldValue,
+      recommendation,
+      riskLevel,
+    })
+
+    setIsLoading(false)
+  }
+
+  const resetForm = () => {
+    setSelectedCrop("")
+    setTemperature([25])
+    setRainfall([1000])
+    setPrediction(null)
+    setError("")
+  }
+
+  const chartData = prediction
+    ? [
+        {
+          name: "Current Prediction",
+          yieldValue: prediction.predictedYield,
+          fill: prediction.riskLevel === "low" ? "#22c55e" : prediction.riskLevel === "medium" ? "#f59e0b" : "#ef4444",
+        },
+        {
+          name: "Optimal Yield",
+          yieldValue: cropRanges[prediction.crop as keyof typeof cropRanges].optimalYield,
+          fill: "#3b82f6",
+        },
+      ]
+    : []
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-50 p-4">
+      <div className="max-w-6xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Sprout className="h-8 w-8 text-green-600" />
+            <h1 className="text-3xl font-bold text-gray-900">Crop Yield Prediction System</h1>
+          </div>
+          <p className="text-gray-600 max-w-2xl mx-auto">
+            Advanced Decision Support System for optimizing crop yield using machine learning predictions
+          </p>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* Input Panel */}
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Prediction Parameters
+              </CardTitle>
+              <CardDescription>
+                Select your crop and adjust environmental parameters for yield prediction
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Crop Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="crop-select">Select Crop Type</Label>
+                <Select value={selectedCrop} onValueChange={setSelectedCrop}>
+                  <SelectTrigger id="crop-select">
+                    <SelectValue placeholder="Choose a crop..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cassava">Cassava</SelectItem>
+                    <SelectItem value="yam">Yam</SelectItem>
+                    <SelectItem value="potatoes">Potatoes</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Temperature Slider */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Thermometer className="h-4 w-4 text-red-500" />
+                  <Label>Temperature: {temperature[0]}°C</Label>
+                </div>
+                <Slider
+                  value={temperature}
+                  onValueChange={setTemperature}
+                  max={50}
+                  min={0}
+                  step={1}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>0°C</span>
+                  <span>50°C</span>
+                </div>
+              </div>
+
+              {/* Rainfall Slider */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <CloudRain className="h-4 w-4 text-blue-500" />
+                  <Label>Annual Rainfall: {rainfall[0]}mm</Label>
+                </div>
+                <Slider value={rainfall} onValueChange={setRainfall} max={3000} min={0} step={50} className="w-full" />
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>0mm</span>
+                  <span>3000mm</span>
+                </div>
+              </div>
+
+              {/* Error Display */}
+              {error && (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4">
+                <Button onClick={handlePredict} disabled={isLoading} className="flex-1">
+                  {isLoading ? "Predicting..." : "Predict Yield"}
+                </Button>
+                <Button variant="outline" onClick={resetForm}>
+                  Reset
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Results Panel */}
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5" />
+                Prediction Results
+              </CardTitle>
+              <CardDescription>AI-powered yield prediction and recommendations</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {prediction ? (
+                <div className="space-y-6">
+                  {/* Yield Prediction */}
+                  <div className="text-center p-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg">
+                    <div className="text-3xl font-bold text-gray-900 mb-2">
+                      {prediction.predictedYield} tons/hectare
+                    </div>
+                    <div className="text-sm text-gray-600 mb-3">Predicted yield for {prediction.crop}</div>
+                    <Badge
+                      variant={
+                        prediction.riskLevel === "low"
+                          ? "default"
+                          : prediction.riskLevel === "medium"
+                            ? "secondary"
+                            : "destructive"
+                      }
+                    >
+                      {prediction.riskLevel.toUpperCase()} RISK
+                    </Badge>
+                  </div>
+
+                  {/* Chart Visualization */}
+                  <div className="space-y-3">
+                    <Label>Yield Comparison</Label>
+                    <ChartContainer
+                      config={{
+                        yieldValue: {
+                          label: "Yield (tons/hectare)",
+                          color: "hsl(var(--chart-1))",
+                        },
+                      }}
+                      className="h-[200px]"
+                    >
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <Bar dataKey="yieldValue" fill="var(--color-yield)" radius={4} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartContainer>
+                  </div>
+
+                  <Separator />
+
+                  {/* Recommendations */}
+                  <div className="space-y-3">
+                    <Label>Recommendations</Label>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="text-sm text-gray-700 leading-relaxed">{prediction.recommendation}</p>
+                    </div>
+                  </div>
+
+                  {/* Input Summary */}
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                    <div className="text-center">
+                      <div className="text-lg font-semibold">{prediction.temperature}°C</div>
+                      <div className="text-xs text-gray-500">Temperature</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-semibold">{prediction.rainfall}mm</div>
+                      <div className="text-xs text-gray-500">Rainfall</div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-gray-500">
+                  <Sprout className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Select parameters and click "Predict Yield" to see results</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Information Cards */}
+        <div className="grid md:grid-cols-3 gap-4">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <Sprout className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <div className="font-semibold">Cassava</div>
+                  <div className="text-xs text-gray-500">20-35°C, 800-1500mm</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <Sprout className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <div className="font-semibold">Yam</div>
+                  <div className="text-xs text-gray-500">25-30°C, 1000-1800mm</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Sprout className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <div className="font-semibold">Potatoes</div>
+                  <div className="text-xs text-gray-500">15-25°C, 400-800mm</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
